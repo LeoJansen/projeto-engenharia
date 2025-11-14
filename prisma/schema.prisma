@@ -1,15 +1,56 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
-generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+// 1. Configuração do Banco de Dados
+datasource db {
+  provider = "mysql" // Ou "postgresql", etc.
+  url      = env("DATABASE_URL")
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 2. Lógica de Negócio: Modelos de Dados
+
+// RNF01: Exigir senha pessoal do operador
+model Operador {
+  id         Int      @id @default(autoincrement())
+  nome       String
+  login      String   @unique
+  senha      String // Em um projeto real, isso seria um hash
+  Venda      Venda[]
+}
+
+// RF03, RF04: Consultar produto e controlar estoque
+model Produto {
+  id           Int         @id @default(autoincrement())
+  codigoBarras String      @unique
+  nome         String
+  precoUnitario Decimal    @db.Decimal(10, 2)
+  qtdEstoque   Int
+  ItemVenda    ItemVenda[]
+}
+
+// RF02, RF05, RF06: Registrar venda, total e pagamento
+model Venda {
+  id            Int         @id @default(autoincrement())
+  dataHora      DateTime    @default(now())
+  totalVenda    Decimal     @db.Decimal(10, 2)
+  tipoPagamento String // "Dinheiro", "Cartão"
+  
+  idOperador    Int
+  operador      Operador    @relation(fields: [idOperador], references: [id])
+  
+  itens         ItemVenda[]
+}
+
+// RF01: Registrar os produtos (itens) vendidos
+model ItemVenda {
+  id           Int     @id @default(autoincrement())
+  quantidade   Int
+  precoMomento Decimal @db.Decimal(10, 2) // Preço no momento da venda
+  
+  idVenda      Int
+  venda        Venda   @relation(fields: [idVenda], references: [id])
+  
+  idProduto    Int
+  produto      Produto @relation(fields: [idProduto], references: [id])
 }
