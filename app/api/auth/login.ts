@@ -34,6 +34,7 @@ export default async function handle(req: NextApiRequest, res: NextApiResponse) 
     res.status(200).json({ id: operador.id, nome: operador.nome });
 
   } catch (error) {
+    console.error('[api/auth/login] Erro ao autenticar operador', error);
     res.status(500).json({ message: 'Erro interno do servidor' });
   }
   // --- Fim da Lógica de Negócio ---

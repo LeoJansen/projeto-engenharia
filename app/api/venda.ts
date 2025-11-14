@@ -89,9 +89,11 @@ export default async function handle(req: NextApiRequest, res: NextApiResponse) 
     // 4. Lógica: Sucesso
     res.status(201).json(vendaRegistrada[0]); // Retorna o objeto da Venda criada
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Se a transação falhar (ex: erro de estoque), o Prisma faz o rollback.
-    res.status(400).json({ message: error.message || 'Erro ao processar venda' });
+    const message =
+      error instanceof Error ? error.message : 'Erro ao processar venda';
+    res.status(400).json({ message });
   }
   // --- Fim da Lógica de Negócio ---
 }

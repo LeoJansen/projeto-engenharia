@@ -29,6 +29,7 @@ export default async function handle(req: NextApiRequest, res: NextApiResponse) 
     res.status(200).json(produto);
 
   } catch (error) {
+    console.error('[api/produto] Falha ao buscar produto', error);
     res.status(500).json({ message: 'Erro interno do servidor' });
   }
   // --- Fim da Lógica de Negócio ---
