@@ -60,6 +60,9 @@ export default function Home() {
                 <Link href="/venda" className="transition hover:text-white">
                   PDV
                 </Link>
+                <Link href="/estoque" className="transition hover:text-white">
+                  Estoque
+                </Link>
                 <Link href="/api/venda" className="transition hover:text-white">
                   API
                 </Link>

@@ -1,7 +1,8 @@
 // 1. Configuração do Banco de Dados
 datasource db {
-  provider = "mysql" // Ou "postgresql", etc.
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 generator client {
