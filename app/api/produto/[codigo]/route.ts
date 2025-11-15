@@ -1,14 +1,15 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
-type RouteParams = {
-  params: {
+type RouteContext = {
+  params: Promise<{
     codigo: string;
-  };
+  }>;
 };
 
-export async function GET(_request: Request, { params }: RouteParams) {
-  const { codigo } = params;
+export async function GET(_request: NextRequest, { params }: RouteContext) {
+  const { codigo } = await params;
 
   if (!codigo) {
     return NextResponse.json(

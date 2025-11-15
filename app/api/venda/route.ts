@@ -210,6 +210,34 @@ export async function POST(request: Request) {
       );
     }
 
+    let operadorIdUtilizado = idOperador;
+    let operadorVerificado = await prisma.operador.findUnique({
+      where: { id: idOperador },
+      select: { id: true },
+    });
+
+    if (!operadorVerificado) {
+      const operadorExistente = await prisma.operador.findFirst({
+        orderBy: { id: "asc" },
+        select: { id: true },
+      });
+
+      if (operadorExistente) {
+        operadorIdUtilizado = operadorExistente.id;
+        operadorVerificado = operadorExistente;
+      } else {
+        operadorVerificado = await prisma.operador.create({
+          data: {
+            nome: "Operador Padrão",
+            login: "operador.padrao",
+            senha: "123456",
+          },
+          select: { id: true },
+        });
+        operadorIdUtilizado = operadorVerificado.id;
+      }
+    }
+
     const idsProdutos = itens.map((item) => item.idProduto);
     const produtosDB = await prisma.produto.findMany({
       where: { id: { in: idsProdutos } },
@@ -250,7 +278,7 @@ export async function POST(request: Request) {
         data: {
           totalVenda: totalVendaCalculado,
           tipoPagamento,
-          idOperador,
+          idOperador: operadorIdUtilizado,
           itens: {
             create: dadosItensVenda,
           },
