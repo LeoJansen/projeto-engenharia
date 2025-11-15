@@ -287,12 +287,15 @@ export default async function Home() {
               </div>
               <div className="relative flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full bg-[#fcbf49]/20 blur-3xl" />
-                <div className="relative flex h-80 w-full max-w-sm items-center justify-center rounded-[2.5rem] border border-white/20 bg-white/10 p-6 backdrop-blur">
+                <div className="relative flex h-80 w-full max-w-sm items-center justify-center rounded-[2.5rem] border border-white/20 bg-white/10 p-6 backdrop-blur overflow-hidden">
                   <Image
-                    src="/assets/hero-burger.svg"
+                    src="/assets/teraburguer.959Z.png"
                     alt="Visualização do cardápio integrado"
-                    width={420}
-                    height={320}
+                  fill
+                  sizes="100vw"
+                  style={{
+                    objectFit: "cover"
+                  }}
                     className="h-auto w-full drop-shadow-[0_24px_60px_rgba(0,0,0,0.35)]"
                     priority
                   />

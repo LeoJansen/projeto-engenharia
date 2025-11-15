@@ -1,5 +1,6 @@
 'use client';
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -150,6 +151,32 @@ const formatCurrency = (value: number) =>
     currency: "BRL",
     minimumFractionDigits: 2,
   }).format(value);
+
+const obterImagemProduto = (nomeProduto: string, codigoBarras: string): string => {
+  const mapeamento: Record<string, string> = {
+    "1111111111111": "/assets/Kernel Burger.990Z.png",
+    "2222222222222": "/assets/dual-core-burguer.334Z.png",
+    "3333333333333": "/assets/BaconByte .244Z.png",
+    "4444444444444": "/assets/firewall.593Z.png",
+    "5555555555555": "/assets/debug.436Z.png",
+    "6666666666666": "/assets/teraburguer.959Z.png",
+    "7777777777771": "/assets/megafritas.218Z.png",
+    "7777777777772": "/assets/megafritas.218Z.png",
+    "7777777777773": "/assets/megafritas.218Z.png",
+    "8888888888888": "/assets/aneis-de-rede.032Z.png",
+    "9999999999996": "/assets/nuggets-zip.685Z.png",
+    "9999999999990": "/assets/nuggets-zip.685Z.png",
+    "1010101010101": "/assets/refrigerante.421Z.png",
+    "1010101010105": "/assets/refrigerante.421Z.png",
+    "2020202020202": "/assets/suco.396Z.png",
+    "3030303030303": "/assets/agua.809Z.png",
+    "4040404040404": "/assets/sundae.348Z.png",
+    "5050505050505": "/assets/mousse.530Z.png",
+    "6060606060606": "/assets/cookie.360Z.png",
+  };
+
+  return mapeamento[codigoBarras] || "/assets/burger.svg";
+};
 
 export default function VendaPage() {
   const [codigo, setCodigo] = useState("");
@@ -730,13 +757,22 @@ export default function VendaPage() {
                                     type="button"
                                     onClick={() => handleSelecionarProduto(step, produto)}
                                     disabled={!ativo}
-                                    className={`flex items-center justify-between rounded-xl border px-4 py-3 text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffe066] ${
+                                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffe066] ${
                                       selecionadoAtual
                                         ? "border-[#d62828] bg-[#d62828] text-white shadow-[0_12px_30px_-20px_rgba(214,40,40,0.6)]"
                                         : "border-[#ffd166] bg-white text-[#8c5315] hover:border-[#fcbf49] hover:text-[#d62828]"
                                     } ${!ativo ? "cursor-not-allowed opacity-60" : ""}`}
                                   >
-                                    <span className="font-semibold">{produto.nome}</span>
+                                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/50">
+                                      <Image
+                                        src={obterImagemProduto(produto.nome, produto.codigoBarras)}
+                                        alt={produto.nome}
+                                        fill
+                                        className="object-cover"
+                                        sizes="48px"
+                                      />
+                                    </div>
+                                    <span className="flex-1 text-left font-semibold">{produto.nome}</span>
                                     <span className="text-xs font-semibold uppercase tracking-[0.18em]">
                                       {formatCurrency(preco)}
                                     </span>
@@ -771,8 +807,19 @@ export default function VendaPage() {
                         {selecoesEmOrdem.map((produto) => {
                           const preco = obterPrecoProduto(produto);
                           return (
-                            <li key={produto.id} className="flex items-center justify-between">
-                              <span>{produto.nome}</span>
+                            <li key={produto.id} className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
+                                  <Image
+                                    src={obterImagemProduto(produto.nome, produto.codigoBarras)}
+                                    alt={produto.nome}
+                                    fill
+                                    className="object-cover"
+                                    sizes="40px"
+                                  />
+                                </div>
+                                <span>{produto.nome}</span>
+                              </div>
                               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
                                 {formatCurrency(preco)}
                               </span>
@@ -859,14 +906,25 @@ export default function VendaPage() {
                           key={item.id}
                           className="flex flex-col gap-4 rounded-2xl border border-[#ffd166] bg-white/80 p-4 shadow-sm transition hover:border-[#fcbf49]"
                         >
-                          <header className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <h3 className="text-base font-semibold text-[#d62828]">
-                                {item.nome}
-                              </h3>
-                              <p className="text-xs uppercase tracking-[0.18em] text-[#8c5315]">
-                                Código · {item.codigoBarras}
-                              </p>
+                          <header className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
+                                <Image
+                                  src={obterImagemProduto(item.nome, item.codigoBarras)}
+                                  alt={item.nome}
+                                  fill
+                                  className="object-cover"
+                                  sizes="64px"
+                                />
+                              </div>
+                              <div>
+                                <h3 className="text-base font-semibold text-[#d62828]">
+                                  {item.nome}
+                                </h3>
+                                <p className="text-xs uppercase tracking-[0.18em] text-[#8c5315]">
+                                  Código · {item.codigoBarras}
+                                </p>
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -1014,16 +1072,27 @@ export default function VendaPage() {
                     {itens.length === 0 ? (
                       <p>Nenhum item no carrinho. Volte para adicionar produtos.</p>
                     ) : (
-                      <ul className="space-y-1">
+                      <ul className="space-y-2">
                         {itens.map((item) => (
                           <li
                             key={`${item.id}-${item.codigoBarras}`}
-                            className="flex items-center justify-between"
+                            className="flex items-center justify-between gap-2"
                           >
-                            <span>
-                              {item.nome}
-                              <span className="text-xs text-[#b5863a]"> × {item.quantidade}</span>
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-md bg-white shadow-sm">
+                                <Image
+                                  src={obterImagemProduto(item.nome, item.codigoBarras)}
+                                  alt={item.nome}
+                                  fill
+                                  className="object-cover"
+                                  sizes="32px"
+                                />
+                              </div>
+                              <span>
+                                {item.nome}
+                                <span className="text-xs text-[#b5863a]"> × {item.quantidade}</span>
+                              </span>
+                            </div>
                             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
                               {formatCurrency(item.precoUnitario * item.quantidade)}
                             </span>
