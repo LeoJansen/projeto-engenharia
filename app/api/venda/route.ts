@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 
 type ItemVendaInput = {
@@ -10,6 +11,31 @@ type PostBody = {
   itens?: unknown;
   tipoPagamento?: unknown;
   idOperador?: unknown;
+};
+
+type VendaComRelacionamentos = Prisma.VendaGetPayload<{
+  include: {
+    operador: { select: { id: true; nome: true } };
+    itens: {
+      include: {
+        produto: { select: { id: true; nome: true; codigoBarras: true } };
+      };
+    };
+  };
+}>;
+
+type VendaSerializada = {
+  id: number;
+  dataHora: string;
+  totalVenda: string;
+  tipoPagamento: string;
+  operador: { id: number; nome: string } | null;
+  itens: Array<{
+    id: number;
+    quantidade: number;
+    precoMomento: string;
+    produto: { id: number; nome: string; codigoBarras: string } | null;
+  }>;
 };
 
 function validarItens(payload: unknown): ItemVendaInput[] {
@@ -40,6 +66,130 @@ function validarItens(payload: unknown): ItemVendaInput[] {
 
     return { idProduto, quantidade };
   });
+}
+
+const sanitizarInteiroPositivo = (
+  valor: string | null,
+  padrao: number,
+  minimo: number,
+  maximo: number
+) => {
+  if (!valor) {
+    return padrao;
+  }
+
+  const numero = Number.parseInt(valor, 10);
+
+  if (!Number.isFinite(numero) || Number.isNaN(numero)) {
+    return padrao;
+  }
+
+  const limitado = Math.min(Math.max(numero, minimo), maximo);
+
+  return limitado;
+};
+
+const serializarVenda = (venda: VendaComRelacionamentos): VendaSerializada => ({
+  id: venda.id,
+  dataHora: venda.dataHora.toISOString(),
+  totalVenda: venda.totalVenda.toString(),
+  tipoPagamento: venda.tipoPagamento,
+  operador: venda.operador
+    ? {
+        id: venda.operador.id,
+        nome: venda.operador.nome,
+      }
+    : null,
+  itens: venda.itens.map((item) => ({
+    id: item.id,
+    quantidade: item.quantidade,
+    precoMomento: item.precoMomento.toString(),
+    produto: item.produto
+      ? {
+          id: item.produto.id,
+          nome: item.produto.nome,
+          codigoBarras: item.produto.codigoBarras,
+        }
+      : null,
+  })),
+});
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const limite = sanitizarInteiroPositivo(url.searchParams.get("limit"), 50, 1, 100);
+    const pagina = sanitizarInteiroPositivo(url.searchParams.get("page"), 1, 1, 1000);
+    const skip = (pagina - 1) * limite;
+
+    const [vendasDB, totalizador, agrupamentoPagamento] = await Promise.all([
+      prisma.venda.findMany({
+        orderBy: { dataHora: "desc" },
+        skip,
+        take: limite,
+        include: {
+          operador: { select: { id: true, nome: true } },
+          itens: {
+            include: {
+              produto: {
+                select: {
+                  id: true,
+                  nome: true,
+                  codigoBarras: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.venda.aggregate({
+        _sum: { totalVenda: true },
+        _count: { _all: true },
+        _min: { dataHora: true },
+        _max: { dataHora: true },
+      }),
+      prisma.venda.groupBy({
+        by: ["tipoPagamento"],
+        _count: { _all: true },
+        _sum: { totalVenda: true },
+        orderBy: { tipoPagamento: "asc" },
+      }),
+    ]);
+
+    const totalRegistros = totalizador._count._all ?? 0;
+    const faturamentoTotalNumero = Number(totalizador._sum.totalVenda ?? 0);
+    const ticketMedioNumero = totalRegistros > 0 ? faturamentoTotalNumero / totalRegistros : 0;
+    const totalPaginas = totalRegistros === 0 ? 1 : Math.ceil(totalRegistros / limite);
+
+    return NextResponse.json({
+      vendas: vendasDB.map(serializarVenda),
+      resumo: {
+        totalVendas: totalRegistros,
+        faturamentoTotal: faturamentoTotalNumero.toFixed(2),
+        ticketMedio: ticketMedioNumero.toFixed(2),
+        primeiraVenda: totalizador._min.dataHora?.toISOString() ?? null,
+        ultimaVenda: totalizador._max.dataHora?.toISOString() ?? null,
+        porPagamento: agrupamentoPagamento.map((registro) => ({
+          tipoPagamento: registro.tipoPagamento,
+          quantidade: registro._count._all,
+          total: Number(registro._sum.totalVenda ?? 0).toFixed(2),
+        })),
+      },
+      meta: {
+        page: pagina,
+        limit: limite,
+        totalRegistros,
+        totalPaginas,
+      },
+    });
+  } catch (error) {
+    console.error("[api/venda] Falha ao listar vendas", error);
+
+    if (error instanceof Error) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ message: "Erro interno do servidor" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
