@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
 
 const formatoMoeda = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -46,6 +48,34 @@ export default function EstoquePage() {
   const [carregamentoCadastro, setCarregamentoCadastro] = useState<EstadoCarregamento>("idle");
   const [quantidadesEdicao, setQuantidadesEdicao] = useState<Record<number, string>>({});
   const [atualizandoEstoque, setAtualizandoEstoque] = useState<Record<number, boolean>>({});
+  const router = useRouter();
+  const pathname = usePathname();
+  const { operador, setOperador } = useAuth();
+  const [deslogando, setDeslogando] = useState(false);
+
+  const redirecionarParaLogin = useCallback(() => {
+    const destino = encodeURIComponent(pathname ?? "/estoque");
+    router.replace(`/login?redirect=${destino}`);
+  }, [pathname, router]);
+
+  const encerrarSessao = useCallback(async () => {
+    setDeslogando(true);
+
+    try {
+      const resposta = await fetch("/api/auth/logout", { method: "POST" });
+
+      if (!resposta.ok) {
+        throw new Error("Falha ao encerrar sessão");
+      }
+    } catch (error) {
+      console.error("[estoque] Falha ao encerrar sessão", error);
+    } finally {
+      setOperador(null);
+      setDeslogando(false);
+      redirecionarParaLogin();
+      router.refresh();
+    }
+  }, [redirecionarParaLogin, router, setOperador]);
 
   const sincronizarQuantidades = (lista: ProdutoPayload[]) => {
     setQuantidadesEdicao(
@@ -70,6 +100,11 @@ export default function EstoquePage() {
         const resposta = await fetch("/api/produto");
         const dados = (await resposta.json().catch(() => null)) as ProdutoPayload[] | ErroApi | null;
 
+        if (resposta.status === 401) {
+          redirecionarParaLogin();
+          throw new Error("Sessão expirada. Faça login novamente.");
+        }
+
         if (!resposta.ok || !dados) {
           throw new Error((dados as ErroApi | null)?.message ?? "Não foi possível carregar os produtos");
         }
@@ -86,7 +121,7 @@ export default function EstoquePage() {
     };
 
     carregarProdutos();
-  }, []);
+  }, [redirecionarParaLogin]);
 
   const atualizarCampo = (campo: keyof ProdutoFormulario, valor: string) => {
     setFormulario((prev) => ({ ...prev, [campo]: valor }));
@@ -124,6 +159,11 @@ export default function EstoquePage() {
       });
 
       const dados = (await resposta.json().catch(() => null)) as ProdutoPayload | ErroApi | null;
+
+      if (resposta.status === 401) {
+        redirecionarParaLogin();
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
 
       if (!resposta.ok || !dados) {
         throw new Error((dados as ErroApi | null)?.message ?? "Não foi possível atualizar o estoque");
@@ -179,6 +219,11 @@ export default function EstoquePage() {
 
       const dados = (await resposta.json().catch(() => null)) as ProdutoPayload | ErroApi | null;
 
+      if (resposta.status === 401) {
+        redirecionarParaLogin();
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
+
       if (!resposta.ok || !dados) {
         throw new Error((dados as ErroApi | null)?.message ?? "Não foi possível cadastrar o produto");
       }
@@ -206,12 +251,29 @@ export default function EstoquePage() {
     <div className="flex min-h-screen bg-linear-to-br from-white via-white to-[#fff9eb] font-sans text-[#2f1b0c] antialiased">
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-12 sm:px-10 lg:px-16">
         <header className="flex flex-col gap-6">
-          <Link
-            href="/"
-            className="inline-flex w-fit items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-[#d62828]/80 transition hover:text-[#d62828]"
-          >
-            ← voltar para o início
-          </Link>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link
+              href="/"
+              className="inline-flex w-fit items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-[#d62828]/80 transition hover:text-[#d62828]"
+            >
+              ← voltar para o início
+            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              {operador && (
+                <span className="inline-flex items-center gap-2 rounded-full border border-[#ffd166] bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
+                  Operador · <span className="text-[#8c5315]">{operador.nome}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={encerrarSessao}
+                disabled={deslogando}
+                className="inline-flex items-center justify-center rounded-full border border-[#ffd166] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#d62828] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deslogando ? "Saindo..." : "Encerrar sessão"}
+              </button>
+            </div>
+          </div>
           <div className="flex flex-col gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#f4a226]">
               Backoffice · Estoque
@@ -243,6 +305,11 @@ export default function EstoquePage() {
                   try {
                     const resposta = await fetch("/api/produto");
                     const dados = (await resposta.json().catch(() => null)) as ProdutoPayload[] | ErroApi | null;
+
+                    if (resposta.status === 401) {
+                      redirecionarParaLogin();
+                      throw new Error("Sessão expirada. Faça login novamente.");
+                    }
 
                     if (!resposta.ok || !dados) {
                       throw new Error((dados as ErroApi | null)?.message ?? "Não foi possível recarregar os produtos");

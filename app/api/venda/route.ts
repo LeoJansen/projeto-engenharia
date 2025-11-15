@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { obterOperadorAutenticado } from "@/lib/auth/session";
+import { AuthSecretNotConfiguredError } from "@/lib/auth/token";
 
 type ItemVendaInput = {
   idProduto: number;
@@ -10,7 +12,6 @@ type ItemVendaInput = {
 type PostBody = {
   itens?: unknown;
   tipoPagamento?: unknown;
-  idOperador?: unknown;
 };
 
 type VendaComRelacionamentos = Prisma.VendaGetPayload<{
@@ -116,6 +117,12 @@ const serializarVenda = (venda: VendaComRelacionamentos): VendaSerializada => ({
 
 export async function GET(request: Request) {
   try {
+    const operador = await obterOperadorAutenticado();
+
+    if (!operador) {
+      return NextResponse.json({ message: "Não autenticado" }, { status: 401 });
+    }
+
     const url = new URL(request.url);
     const limite = sanitizarInteiroPositivo(url.searchParams.get("limit"), 50, 1, 100);
     const pagina = sanitizarInteiroPositivo(url.searchParams.get("page"), 1, 1, 1000);
@@ -182,6 +189,14 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof AuthSecretNotConfiguredError) {
+      console.error("[api/venda] AUTH_SECRET ausente", error);
+      return NextResponse.json(
+        { message: "Configuração de segurança ausente. Informe AUTH_SECRET para habilitar o login." },
+        { status: 500 },
+      );
+    }
+
     console.error("[api/venda] Falha ao listar vendas", error);
 
     if (error instanceof Error) {
@@ -201,41 +216,13 @@ export async function POST(request: Request) {
       typeof body.tipoPagamento === "string" && body.tipoPagamento.trim()
         ? body.tipoPagamento.trim()
         : "Dinheiro";
-    const idOperador = Number(body.idOperador ?? 1);
+    const operador = await obterOperadorAutenticado();
 
-    if (!Number.isInteger(idOperador) || idOperador <= 0) {
+    if (!operador) {
       return NextResponse.json(
-        { message: "Operador inválido" },
-        { status: 400 }
+        { message: "Não autenticado" },
+        { status: 401 },
       );
-    }
-
-    let operadorIdUtilizado = idOperador;
-    let operadorVerificado = await prisma.operador.findUnique({
-      where: { id: idOperador },
-      select: { id: true },
-    });
-
-    if (!operadorVerificado) {
-      const operadorExistente = await prisma.operador.findFirst({
-        orderBy: { id: "asc" },
-        select: { id: true },
-      });
-
-      if (operadorExistente) {
-        operadorIdUtilizado = operadorExistente.id;
-        operadorVerificado = operadorExistente;
-      } else {
-        operadorVerificado = await prisma.operador.create({
-          data: {
-            nome: "Operador Padrão",
-            login: "operador.padrao",
-            senha: "123456",
-          },
-          select: { id: true },
-        });
-        operadorIdUtilizado = operadorVerificado.id;
-      }
     }
 
     const idsProdutos = itens.map((item) => item.idProduto);
@@ -278,7 +265,7 @@ export async function POST(request: Request) {
         data: {
           totalVenda: totalVendaCalculado,
           tipoPagamento,
-          idOperador: operadorIdUtilizado,
+          idOperador: operador.id,
           itens: {
             create: dadosItensVenda,
           },
@@ -291,6 +278,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json(vendaRegistrada, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthSecretNotConfiguredError) {
+      console.error("[api/venda] AUTH_SECRET ausente", error);
+      return NextResponse.json(
+        { message: "Configuração de segurança ausente. Informe AUTH_SECRET para habilitar o login." },
+        { status: 500 },
+      );
+    }
+
     console.error("[api/venda] Falha ao processar venda", error);
 
     if (error instanceof Error) {

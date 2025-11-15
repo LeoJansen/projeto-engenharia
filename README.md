@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Visão geral
 
-## Getting Started
+Aplicação completa para operação de PDV com Next.js (App Router), Prisma e PostgreSQL. Inclui catálogo orientado por estoque, PDV com fluxo guiado, painel de histórico e agora um mecanismo de autenticação de operadores.
 
-First, run the development server:
+## Requisitos
+
+- Node.js 18+
+- Banco PostgreSQL configurado e acessível via variáveis de ambiente
+- Dependências instaladas com `npm install`
+
+## Configuração de ambiente
+
+Crie (ou atualize) o arquivo `.env` na raiz do projeto com as variáveis necessárias:
+
+```env
+DATABASE_URL="postgres://…"
+DIRECT_DATABASE_URL="postgres://…"
+POSTGRES_URL="postgres://…"
+AUTH_SECRET="troque-por-uma-chave-secreta"
+```
+
+> **Importante:** `AUTH_SECRET` é usada para assinar os tokens de sessão. Utilize um valor longo e aleatório em produção.
+
+## Seeding inicial
+
+O script `scripts/seed-produtos.js` populará produtos base e garante a existência de um operador padrão.
+
+```bash
+npx prisma migrate deploy
+node ./scripts/seed-produtos.js
+```
+
+Credenciais criadas pelo seed:
+
+- **Login:** `operador.master`
+- **Senha:** `123456`
+
+Substitua ou remova esse operador conforme a política de segurança do projeto.
+
+## Executando em desenvolvimento
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Acesse [http://localhost:3000](http://localhost:3000). As rotas `/estoque`, `/venda` e `/venda/historico` exigem autenticação.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Fluxo de autenticação
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Acesse `/login` e informe as credenciais de operador.
+2. Um cookie httpOnly (`sabor_session`) é emitido com duração de 8 horas.
+3. As APIs e páginas protegidas validam o cookie antes de responder.
+4. Use o botão **Encerrar sessão** para invalidar o cookie.
 
-## Learn More
+Em caso de sessão expirada, o usuário é redirecionado automaticamente para `/login`, mantendo a rota desejada na query `redirect`.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts úteis
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `npm run dev` — inicia o ambiente de desenvolvimento.
+- `npm run build` — gera a versão de produção.
+- `npm run start` — executa a build já gerada.
+- `npm run lint` — validações do ESLint.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Estrutura destacada
 
-## Deploy on Vercel
+- `app/login` — página e formulário de login.
+- `app/api/auth/*` — endpoints de login, logout e sessão.
+- `lib/auth` — utilitários de token e sessão.
+- `components/auth/auth-provider.tsx` — contexto de autenticação usado pelas rotas protegidas.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Segurança
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Senhas de operadores estão em texto plano apenas para fins didáticos — utilize hashing (ex.: bcrypt) em ambientes reais.
+- Ajuste `AUTH_SECRET` e demais credenciais antes de publicar.
+- Considere mover o login para um provedor dedicado (NextAuth, Auth.js, etc.) conforme a complexidade do produto.

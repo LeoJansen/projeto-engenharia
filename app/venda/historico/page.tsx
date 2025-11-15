@@ -1,7 +1,9 @@
 'use client';
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
 
 type ProdutoVenda = {
   id: number;
@@ -117,6 +119,34 @@ export default function HistoricoVendasPage() {
   const [carregando, setCarregando] = useState(true);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
   const [versaoConsulta, setVersaoConsulta] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const { operador, setOperador } = useAuth();
+  const [deslogando, setDeslogando] = useState(false);
+
+  const redirecionarParaLogin = useCallback(() => {
+    const destino = encodeURIComponent(pathname ?? "/venda/historico");
+    router.replace(`/login?redirect=${destino}`);
+  }, [pathname, router]);
+
+  const encerrarSessao = useCallback(async () => {
+    setDeslogando(true);
+
+    try {
+      const resposta = await fetch("/api/auth/logout", { method: "POST" });
+
+      if (!resposta.ok) {
+        throw new Error("Falha ao encerrar sessão");
+      }
+    } catch (error) {
+      console.error("[historico] Falha ao encerrar sessão", error);
+    } finally {
+      setOperador(null);
+      setDeslogando(false);
+      redirecionarParaLogin();
+      router.refresh();
+    }
+  }, [redirecionarParaLogin, router, setOperador]);
 
   useEffect(() => {
     const controlador = new AbortController();
@@ -133,6 +163,11 @@ export default function HistoricoVendasPage() {
           | HistoricoResponse
           | ApiError
           | null;
+
+        if (resposta.status === 401) {
+          redirecionarParaLogin();
+          throw new Error("Sessão expirada. Faça login novamente.");
+        }
 
         if (!resposta.ok || !dados || !("vendas" in dados)) {
           throw new Error(
@@ -163,7 +198,7 @@ export default function HistoricoVendasPage() {
     void carregarHistorico();
 
     return () => controlador.abort();
-  }, [pagina, limite, versaoConsulta]);
+  }, [pagina, limite, versaoConsulta, redirecionarParaLogin]);
 
   const totalRegistros = meta?.totalRegistros ?? 0;
   const totalPaginas = meta?.totalPaginas ?? 1;
@@ -228,12 +263,27 @@ export default function HistoricoVendasPage() {
             >
               ← voltar para o PDV
             </Link>
-            <Link
-              href="/"
-              className="inline-flex w-fit items-center gap-2 rounded-full border border-[#ffd166] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#d62828]"
-            >
-              Ir para o início
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              {operador && (
+                <span className="inline-flex items-center gap-2 rounded-full border border-[#ffd166] bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
+                  Operador · <span className="text-[#8c5315]">{operador.nome}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={encerrarSessao}
+                disabled={deslogando}
+                className="inline-flex items-center justify-center rounded-full border border-[#ffd166] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#d62828] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deslogando ? "Saindo..." : "Encerrar sessão"}
+              </button>
+              <Link
+                href="/"
+                className="inline-flex w-fit items-center gap-2 rounded-full border border-[#ffd166] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#d62828]"
+              >
+                Ir para o início
+              </Link>
+            </div>
           </div>
           <div className="flex flex-col gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#f4a226]">

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { obterOperadorAutenticado } from "@/lib/auth/session";
+import { AuthSecretNotConfiguredError } from "@/lib/auth/token";
 
 type ProdutoRecord = {
   id: number;
@@ -73,6 +75,12 @@ function parseId(id: unknown): number {
 
 export async function GET() {
   try {
+    const operador = await obterOperadorAutenticado();
+
+    if (!operador) {
+      return NextResponse.json({ message: "Não autenticado" }, { status: 401 });
+    }
+
     const produtos = (await prisma.produto.findMany({
       orderBy: { nome: "asc" },
     })) as ProdutoRecord[];
@@ -87,6 +95,14 @@ export async function GET() {
 
     return NextResponse.json(payload, { status: 200 });
   } catch (error) {
+    if (error instanceof AuthSecretNotConfiguredError) {
+      console.error("[api/produto] AUTH_SECRET ausente", error);
+      return NextResponse.json(
+        { message: "Configuração de segurança ausente. Informe AUTH_SECRET para habilitar o login." },
+        { status: 500 },
+      );
+    }
+
     console.error("[api/produto] Falha ao listar produtos", error);
     return NextResponse.json(
       { message: "Erro interno do servidor" },
@@ -97,6 +113,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const operador = await obterOperadorAutenticado();
+
+    if (!operador) {
+      return NextResponse.json({ message: "Não autenticado" }, { status: 401 });
+    }
+
     const body = (await request.json()) as PostBody;
 
     const nome = typeof body.nome === "string" ? body.nome.trim() : "";
@@ -145,6 +167,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json(payload, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthSecretNotConfiguredError) {
+      console.error("[api/produto] AUTH_SECRET ausente", error);
+      return NextResponse.json(
+        { message: "Configuração de segurança ausente. Informe AUTH_SECRET para habilitar o login." },
+        { status: 500 },
+      );
+    }
+
     console.error("[api/produto] Falha ao cadastrar produto", error);
 
     if (
@@ -175,6 +205,12 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const operador = await obterOperadorAutenticado();
+
+    if (!operador) {
+      return NextResponse.json({ message: "Não autenticado" }, { status: 401 });
+    }
+
     const body = (await request.json()) as PatchBody;
 
     const id = parseId(body.id);
@@ -202,6 +238,14 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(payload, { status: 200 });
   } catch (error) {
+    if (error instanceof AuthSecretNotConfiguredError) {
+      console.error("[api/produto] AUTH_SECRET ausente", error);
+      return NextResponse.json(
+        { message: "Configuração de segurança ausente. Informe AUTH_SECRET para habilitar o login." },
+        { status: 500 },
+      );
+    }
+
     console.error("[api/produto] Falha ao atualizar produto", error);
 
     if (

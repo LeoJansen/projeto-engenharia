@@ -3,6 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
 
 type ProdutoResponse = {
   id: number;
@@ -193,6 +195,34 @@ export default function VendaPage() {
     criarSelecoesVazias
   );
   const [etapaAtual, setEtapaAtual] = useState<VendaStep>("pedido");
+  const router = useRouter();
+  const pathname = usePathname();
+  const { operador, setOperador } = useAuth();
+  const [deslogando, setDeslogando] = useState(false);
+
+  const redirecionarParaLogin = useCallback(() => {
+    const destino = encodeURIComponent(pathname ?? "/venda");
+    router.replace(`/login?redirect=${destino}`);
+  }, [pathname, router]);
+
+  const handleLogout = useCallback(async () => {
+    setDeslogando(true);
+
+    try {
+      const resposta = await fetch("/api/auth/logout", { method: "POST" });
+
+      if (!resposta.ok) {
+        throw new Error("Falha ao encerrar sessão");
+      }
+    } catch (error) {
+      console.error("[pdv] Falha ao encerrar sessão", error);
+    } finally {
+      setOperador(null);
+      setDeslogando(false);
+      redirecionarParaLogin();
+      router.refresh();
+    }
+  }, [redirecionarParaLogin, router, setOperador]);
 
   const indiceEtapaAtual = useMemo(
     () => VENDA_STEPS.indexOf(etapaAtual),
@@ -251,6 +281,11 @@ export default function VendaPage() {
       const resposta = await fetch("/api/produto");
       const dados = (await resposta.json().catch(() => null)) as unknown;
 
+      if (resposta.status === 401) {
+        redirecionarParaLogin();
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
+
       if (!resposta.ok) {
         const mensagemErro =
           dados &&
@@ -295,7 +330,7 @@ export default function VendaPage() {
     } finally {
       setCarregandoCatalogo(false);
     }
-  }, []);
+  }, [redirecionarParaLogin]);
 
   useEffect(() => {
     void carregarCatalogo();
@@ -498,6 +533,11 @@ export default function VendaPage() {
       const resposta = await fetch(`/api/produto/${encodeURIComponent(codigoLimpo)}`);
       const dados = (await resposta.json().catch(() => null)) as ProdutoResponse & ApiError | null;
 
+      if (resposta.status === 401) {
+        redirecionarParaLogin();
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
+
       if (!resposta.ok || !dados) {
         throw new Error(dados?.message ?? "Produto não encontrado");
       }
@@ -526,7 +566,6 @@ export default function VendaPage() {
     const payload = {
       itens: itens.map((item) => ({ idProduto: item.id, quantidade: item.quantidade })),
       tipoPagamento: formaPagamento,
-      idOperador: 1,
     };
 
     try {
@@ -535,6 +574,11 @@ export default function VendaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+      if (resposta.status === 401) {
+        redirecionarParaLogin();
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
 
       if (!resposta.ok) {
         const dados = (await resposta.json().catch(() => null)) as ApiError | null;
@@ -578,6 +622,19 @@ export default function VendaPage() {
               >
                 Consultar histórico de vendas
               </Link>
+              {operador && (
+                <span className="inline-flex items-center gap-2 rounded-full border border-[#ffd166] bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
+                  Operador · <span className="text-[#8c5315]">{operador.nome}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={deslogando}
+                className="inline-flex items-center justify-center rounded-full border border-[#ffd166] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#d62828] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deslogando ? "Saindo..." : "Encerrar sessão"}
+              </button>
             </div>
           </div>
         </header>

@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { obterOperadorAutenticado } from "@/lib/auth/session";
+import { AuthSecretNotConfiguredError } from "@/lib/auth/token";
 
 type RouteContext = {
   params: Promise<{
@@ -19,6 +21,12 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
   }
 
   try {
+    const operador = await obterOperadorAutenticado();
+
+    if (!operador) {
+      return NextResponse.json({ message: "Não autenticado" }, { status: 401 });
+    }
+
     const produto = await prisma.produto.findUnique({
       where: { codigoBarras: codigo },
     });
@@ -42,6 +50,14 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       precoUnitario: produto.precoUnitario.toString(),
     });
   } catch (error) {
+    if (error instanceof AuthSecretNotConfiguredError) {
+      console.error("[api/produto/codigo] AUTH_SECRET ausente", error);
+      return NextResponse.json(
+        { message: "Configuração de segurança ausente. Informe AUTH_SECRET para habilitar o login." },
+        { status: 500 },
+      );
+    }
+
     console.error("[api/produto/codigo] Falha ao buscar produto", error);
     return NextResponse.json(
       { message: "Erro interno do servidor" },

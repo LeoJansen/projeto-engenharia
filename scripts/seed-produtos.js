@@ -3,6 +3,12 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
+const operadorPadrao = {
+  nome: "Operador Master",
+  login: "operador.master",
+  senha: "123456",
+};
+
 const produtos = [
   {
     nome: "Kernel Burger",
@@ -121,6 +127,17 @@ const produtos = [
 ];
 
 async function main() {
+  await prisma.operador.upsert({
+    where: { login: operadorPadrao.login },
+    update: {
+      nome: operadorPadrao.nome,
+      senha: operadorPadrao.senha,
+    },
+    create: operadorPadrao,
+  });
+
+  console.log(`✔ Operador disponível: ${operadorPadrao.login} / ${operadorPadrao.senha}`);
+
   for (const produto of produtos) {
     await prisma.produto.upsert({
       where: { codigoBarras: produto.codigoBarras },
