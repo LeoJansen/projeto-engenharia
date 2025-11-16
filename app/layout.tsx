@@ -30,10 +30,12 @@ export default async function RootLayout({
     throw error;
   }
 
+  const authKey = operador ? `operador-${operador.id}` : "anonimo";
+
   return (
     <html lang="en">
       <body className={`${GeistSans.variable} ${GeistMono.variable} bg-slate-50 text-slate-900 antialiased`}>
-        <AuthProvider initialOperador={operador}>
+        <AuthProvider key={authKey} initialOperador={operador}>
           <div className="flex min-h-screen flex-col">
             <Topbar />
             <main className="flex-1">{children}</main>

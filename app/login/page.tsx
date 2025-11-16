@@ -3,8 +3,24 @@ import { AuthSecretNotConfiguredError } from "@/lib/auth/token";
 import { obterOperadorAutenticado } from "@/lib/auth/session";
 import { LoginForm } from "./login-form";
 
+type SearchParams = Record<string, string | string[] | undefined>;
+
 type LoginPageProps = {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: SearchParams | Promise<SearchParams>;
+};
+
+const resolverSearchParams = async (
+  searchParams: LoginPageProps["searchParams"],
+): Promise<SearchParams> => {
+  if (!searchParams) {
+    return {};
+  }
+
+  if (typeof (searchParams as Promise<SearchParams>).then === "function") {
+    return (await searchParams) ?? {};
+  }
+
+  return searchParams;
 };
 
 const sanitizarDestino = (destino?: string | string[] | undefined) => {
@@ -25,7 +41,7 @@ const sanitizarDestino = (destino?: string | string[] | undefined) => {
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const params = searchParams ?? {};
+  const params = await resolverSearchParams(searchParams);
   const destino = sanitizarDestino(params.redirect);
 
   try {
