@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 const AUTH_COOKIE_NAME = "sabor_session";
 const PUBLIC_PATHS = new Set(["/login"]);
 
-const isPublicPath = (pathname: string) => {
+const hasPublicPrefix = (pathname: string) => {
   if (PUBLIC_PATHS.has(pathname)) {
     return true;
   }
@@ -17,11 +17,19 @@ const isPublicPath = (pathname: string) => {
   return false;
 };
 
+const decodeBase64 = (value: string) => {
+  if (typeof atob === "function") {
+    return atob(value);
+  }
+
+  return Buffer.from(value, "base64").toString("binary");
+};
+
 const base64UrlToUint8Array = (value: string): Uint8Array => {
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
   const padding = (4 - (base64.length % 4)) % 4;
   const normalized = base64 + "=".repeat(padding);
-  const binary = atob(normalized);
+  const binary = decodeBase64(normalized);
   const bytes = new Uint8Array(binary.length);
 
   for (let index = 0; index < binary.length; index += 1) {
@@ -37,7 +45,7 @@ const parsePayload = (payloadBase64: string) => {
     const json = new TextDecoder().decode(bytes);
     return JSON.parse(json) as unknown;
   } catch (error) {
-    console.error("[middleware/auth] Falha ao decodificar payload", error);
+    console.error("[proxy/auth] Falha ao decodificar payload", error);
     return null;
   }
 };
@@ -47,6 +55,13 @@ const validarAssinatura = async (payloadBase64: string, assinaturaBase64: string
     const encoder = new TextEncoder();
     const keyData = encoder.encode(segredo);
     const assinatura = base64UrlToUint8Array(assinaturaBase64);
+    const assinaturaBuffer =
+      assinatura.byteOffset === 0 && assinatura.byteLength === assinatura.buffer.byteLength
+        ? (assinatura.buffer as ArrayBuffer)
+        : (assinatura.buffer as ArrayBuffer).slice(
+            assinatura.byteOffset,
+            assinatura.byteOffset + assinatura.byteLength,
+          );
 
     const key = await crypto.subtle.importKey(
       "raw",
@@ -59,13 +74,13 @@ const validarAssinatura = async (payloadBase64: string, assinaturaBase64: string
     const valido = await crypto.subtle.verify(
       "HMAC",
       key,
-      assinatura.buffer,
+      assinaturaBuffer,
       encoder.encode(payloadBase64),
     );
 
     return valido;
   } catch (error) {
-    console.error("[middleware/auth] Falha ao validar assinatura", error);
+    console.error("[proxy/auth] Falha ao validar assinatura", error);
     return false;
   }
 };
@@ -122,7 +137,7 @@ const redirectToLogin = (request: NextRequest) => {
 
 const redirectToHome = (request: NextRequest) => NextResponse.redirect(new URL("/", request.url));
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (
@@ -139,14 +154,14 @@ export async function middleware(request: NextRequest) {
   const segredo = process.env.AUTH_SECRET;
 
   if (!segredo) {
-    console.error("[middleware/auth] AUTH_SECRET não configurada");
+    console.error("[proxy/auth] AUTH_SECRET não configurada");
     return NextResponse.next();
   }
 
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value ?? "";
   const tokenValido = token ? await validarToken(token, segredo) : null;
 
-  if (isPublicPath(pathname)) {
+  if (hasPublicPrefix(pathname)) {
     if (tokenValido && pathname.startsWith("/login")) {
       return redirectToHome(request);
     }
@@ -162,5 +177,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|assets).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

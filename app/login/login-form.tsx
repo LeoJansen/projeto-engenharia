@@ -61,7 +61,7 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
   };
 
   return (
-    <div className="flex min-h-screen bg-linear-to-br from-white via-white to-[#fff3de] font-sans text-[#2f1b0c] antialiased">
+    <div className="flex min-h-full flex-1 bg-linear-to-br from-white via-white to-[#fff3de] font-sans text-[#2f1b0c] antialiased">
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-12 px-6 py-16 sm:px-10 lg:px-16">
         <header className="flex flex-col gap-3 text-center">
           <span className="mx-auto rounded-full bg-[#ffe8cc] px-4 py-1 text-xs font-semibold uppercase tracking-[0.28em] text-[#d62828]">
