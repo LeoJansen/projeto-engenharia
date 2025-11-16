@@ -60,25 +60,25 @@ const STEP_SEQUENCE: StepKey[] = [
 const STEP_CONFIG: Record<StepKey, StepConfig> = {
   hamburguer: {
     titulo: "Hambúrguer",
-    descricao: "Escolha a base do combo entre nossas opções mais pedidas.",
+    descricao: "Escolha um hambúrguer, se desejar. Todas as categorias são opcionais.",
     labelBotaoVazio: "Nenhum hambúrguer cadastrado",
     artigo: "um",
   },
   periferico: {
     titulo: "Periférico",
-    descricao: "Selecione um acompanhamento para deixar o combo completo.",
+    descricao: "Adicione um acompanhamento, se quiser complementar o pedido.",
     labelBotaoVazio: "Nenhum periférico cadastrado",
     artigo: "um",
   },
   bebida: {
     titulo: "Bebida",
-    descricao: "Garanta uma bebida gelada para acompanhar o lanche.",
+    descricao: "Selecione uma bebida, caso o cliente deseje.",
     labelBotaoVazio: "Nenhuma bebida cadastrada",
     artigo: "uma",
   },
   sobremesa: {
     titulo: "Sobremesa",
-    descricao: "Finalize com um toque doce — opcional, mas muito recomendado!",
+    descricao: "Adicione uma sobremesa, se o cliente quiser finalizar com algo doce.",
     labelBotaoVazio: "Nenhuma sobremesa cadastrada",
     artigo: "uma",
   },
@@ -374,22 +374,8 @@ export default function VendaPage() {
     [selecoes]
   );
 
-  const comboCompleto = useMemo(
-    () =>
-      STEP_SEQUENCE.every((step) => {
-        const possuiOpcoes = (catalogoPorCategoria[step]?.length ?? 0) > 0;
-
-        if (!possuiOpcoes) {
-          return true;
-        }
-
-        return Boolean(selecoes[step]);
-      }),
-    [catalogoPorCategoria, selecoes]
-  );
-
   const podeAdicionarCombo =
-    comboCompleto && selecoesEmOrdem.length > 0 && !carregandoCatalogo && !erroCatalogo;
+    selecoesEmOrdem.length > 0 && !carregandoCatalogo && !erroCatalogo;
 
   const handleSelecionarProduto = (etapa: StepKey, produto: ProdutoResponse) => {
     setSelecoes((prev) => {
@@ -419,18 +405,6 @@ export default function VendaPage() {
     setErro(null);
     setSucesso(null);
 
-    const etapaPendente = STEP_SEQUENCE.find(
-      (step) => (catalogoPorCategoria[step]?.length ?? 0) > 0 && !selecoes[step]
-    );
-
-    if (etapaPendente) {
-      const config = STEP_CONFIG[etapaPendente];
-      setErro(
-        `Selecione ${config.artigo} ${config.titulo.toLowerCase()} antes de prosseguir`
-      );
-      return;
-    }
-
     if (selecoesEmOrdem.length === 0) {
       setErro("Nenhum item selecionado");
       return;
@@ -442,14 +416,19 @@ export default function VendaPage() {
         adicionarOuIncrementarItem(item);
       });
 
-      setSucesso("Itens do combo adicionados ao carrinho!");
+      const quantidade = selecoesEmOrdem.length;
+      setSucesso(
+        quantidade === 1
+          ? "Item adicionado ao carrinho!"
+          : `${quantidade} itens adicionados ao carrinho!`
+      );
       setSelecoes(criarSelecoesVazias());
     } catch (error) {
       console.error("[pdv] Falha ao adicionar combo", error);
       setErro(
         error instanceof Error
           ? error.message
-          : "Não foi possível adicionar o combo ao carrinho"
+          : "Não foi possível adicionar os itens ao carrinho"
       );
     }
   };
@@ -726,10 +705,10 @@ export default function VendaPage() {
                       Menu progressivo
                     </span>
                     <h2 className="text-xl font-semibold text-[#d62828] sm:text-2xl">
-                      Monte o combo em quatro etapas
+                      Selecione os produtos desejados
                     </h2>
                     <p className="text-sm text-[#8c5315]">
-                      Avance na ordem sugerida para acelerar o atendimento. Cada seleção pode ser ajustada a qualquer momento antes de enviar ao carrinho.
+                      Escolha um ou mais produtos de qualquer categoria. Você pode adicionar apenas uma bebida, apenas um lanche, ou montar um combo completo — a escolha é sua.
                     </p>
                   </div>
 
@@ -752,17 +731,7 @@ export default function VendaPage() {
                       const config = STEP_CONFIG[step];
                       const opcoes = catalogoPorCategoria[step] ?? [];
                       const selecionado = selecoes[step];
-                      const etapaAnterior = index > 0 ? STEP_SEQUENCE[index - 1] : null;
-                      const etapaAnteriorPossuiOpcoes =
-                        etapaAnterior !== null
-                          ? (catalogoPorCategoria[etapaAnterior]?.length ?? 0) > 0
-                          : false;
-                      const etapaAnteriorCompleta =
-                        index === 0 ||
-                        !etapaAnteriorPossuiOpcoes ||
-                        (etapaAnterior !== null && Boolean(selecoes[etapaAnterior]));
-                      const etapaInativa =
-                        !etapaAnteriorCompleta || carregandoCatalogo || Boolean(erroCatalogo);
+                      const etapaInativa = carregandoCatalogo || Boolean(erroCatalogo);
 
                       return (
                         <section
@@ -848,13 +817,13 @@ export default function VendaPage() {
                       <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[#d62828]">
                         Resumo das escolhas
                       </h3>
-                      {comboCompleto ? (
+                      {selecoesEmOrdem.length > 0 ? (
                         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#23613d]">
-                          Pronto para adicionar
+                          {selecoesEmOrdem.length} {selecoesEmOrdem.length === 1 ? "item selecionado" : "itens selecionados"}
                         </span>
                       ) : (
                         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8c5315]">
-                          Complete as etapas
+                          Selecione itens
                         </span>
                       )}
                     </div>
@@ -886,7 +855,7 @@ export default function VendaPage() {
                       </ul>
                     ) : (
                       <p className="text-xs text-[#8c5315]">
-                        Nenhum item selecionado ainda. Inicie escolhendo o hambúrguer desejado.
+                        Nenhum item selecionado ainda. Escolha um ou mais produtos de qualquer categoria.
                       </p>
                     )}
 
@@ -897,7 +866,7 @@ export default function VendaPage() {
                         disabled={!podeAdicionarCombo}
                         className="inline-flex flex-1 items-center justify-center rounded-2xl bg-[#d62828] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#b71d1d] disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {podeAdicionarCombo ? "Adicionar seleção ao carrinho" : "Complete as etapas"}
+                        {podeAdicionarCombo ? "Adicionar ao carrinho" : "Selecione pelo menos um item"}
                       </button>
                       <button
                         type="button"
