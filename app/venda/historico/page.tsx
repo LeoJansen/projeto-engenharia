@@ -5,6 +5,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 
+const MESES = [
+  { valor: 1, rotulo: "Janeiro" },
+  { valor: 2, rotulo: "Fevereiro" },
+  { valor: 3, rotulo: "Março" },
+  { valor: 4, rotulo: "Abril" },
+  { valor: 5, rotulo: "Maio" },
+  { valor: 6, rotulo: "Junho" },
+  { valor: 7, rotulo: "Julho" },
+  { valor: 8, rotulo: "Agosto" },
+  { valor: 9, rotulo: "Setembro" },
+  { valor: 10, rotulo: "Outubro" },
+  { valor: 11, rotulo: "Novembro" },
+  { valor: 12, rotulo: "Dezembro" },
+] as const;
+
 type ProdutoVenda = {
   id: number;
   nome: string;
@@ -38,6 +53,20 @@ type ResumoPagamento = {
   total: string;
 };
 
+type ResumoEstoque = {
+  entradas: number;
+  saidas: number;
+  saldoInicial: number;
+  saldoFinal: number;
+};
+
+type ResumoPeriodo = {
+  mes: number;
+  ano: number;
+  inicio: string;
+  fim: string;
+};
+
 type ResumoHistorico = {
   totalVendas: number;
   faturamentoTotal: string;
@@ -45,6 +74,8 @@ type ResumoHistorico = {
   primeiraVenda: string | null;
   ultimaVenda: string | null;
   porPagamento: ResumoPagamento[];
+  periodo: ResumoPeriodo;
+  estoque: ResumoEstoque;
 };
 
 type MetaHistorico = {
@@ -78,6 +109,8 @@ const formatadorDataHora = new Intl.DateTimeFormat("pt-BR", {
 const formatadorHora = new Intl.DateTimeFormat("pt-BR", {
   timeStyle: "short",
 });
+
+const formatadorNumero = new Intl.NumberFormat("pt-BR");
 
 const formatarMoeda = (valor: string | number) => {
   const numero = typeof valor === "string" ? Number.parseFloat(valor) : valor;
@@ -115,6 +148,9 @@ export default function HistoricoVendasPage() {
   const [meta, setMeta] = useState<MetaHistorico | null>(null);
   const [pagina, setPagina] = useState(1);
   const [limite, setLimite] = useState(20);
+  const dataAtual = useMemo(() => new Date(), []);
+  const [mesSelecionado, setMesSelecionado] = useState(() => dataAtual.getMonth() + 1);
+  const [anoSelecionado, setAnoSelecionado] = useState(() => dataAtual.getFullYear());
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
@@ -123,6 +159,11 @@ export default function HistoricoVendasPage() {
   const pathname = usePathname();
   const { operador, setOperador } = useAuth();
   const [deslogando, setDeslogando] = useState(false);
+
+  const anosDisponiveis = useMemo(() => {
+    const anoAtual = dataAtual.getFullYear();
+    return Array.from({ length: 6 }, (_, indice) => anoAtual - indice);
+  }, [dataAtual]);
 
   const redirecionarParaLogin = useCallback(() => {
     const destino = encodeURIComponent(pathname ?? "/venda/historico");
@@ -156,9 +197,12 @@ export default function HistoricoVendasPage() {
       setErro(null);
 
       try {
-        const resposta = await fetch(`/api/venda?limit=${limite}&page=${pagina}`, {
-          signal: controlador.signal,
-        });
+        const resposta = await fetch(
+          `/api/venda?limit=${limite}&page=${pagina}&mes=${mesSelecionado}&ano=${anoSelecionado}`,
+          {
+            signal: controlador.signal,
+          },
+        );
         const dados = (await resposta.json().catch(() => null)) as
           | HistoricoResponse
           | ApiError
@@ -198,7 +242,7 @@ export default function HistoricoVendasPage() {
     void carregarHistorico();
 
     return () => controlador.abort();
-  }, [pagina, limite, versaoConsulta, redirecionarParaLogin]);
+  }, [pagina, limite, versaoConsulta, redirecionarParaLogin, mesSelecionado, anoSelecionado]);
 
   const totalRegistros = meta?.totalRegistros ?? 0;
   const totalPaginas = meta?.totalPaginas ?? 1;
@@ -228,6 +272,39 @@ export default function HistoricoVendasPage() {
 
   const podeAvancar = meta ? pagina < totalPaginas && totalPaginas > 0 : false;
   const podeVoltar = pagina > 1;
+
+  const resumoEstoque = resumo?.estoque ?? {
+    entradas: 0,
+    saidas: 0,
+    saldoInicial: 0,
+    saldoFinal: 0,
+  };
+
+  const nomeMesSelecionado = useMemo(() => {
+    return MESES.find((item) => item.valor === mesSelecionado)?.rotulo ?? "";
+  }, [mesSelecionado]);
+
+  const handleAlterarMes = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const valor = Number.parseInt(event.target.value, 10);
+
+    if (!Number.isFinite(valor) || Number.isNaN(valor)) {
+      return;
+    }
+
+    setPagina(1);
+    setMesSelecionado(valor);
+  };
+
+  const handleAlterarAno = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const valor = Number.parseInt(event.target.value, 10);
+
+    if (!Number.isFinite(valor) || Number.isNaN(valor)) {
+      return;
+    }
+
+    setPagina(1);
+    setAnoSelecionado(valor);
+  };
 
   const handleAlterarLimite = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const valor = Number.parseInt(event.target.value, 10);
@@ -334,6 +411,42 @@ export default function HistoricoVendasPage() {
           </article>
         </section>
 
+        <section className="grid gap-5 rounded-3xl border border-[#ffd166] bg-white/90 p-6 shadow-[0_25px_70px_-45px_rgba(214,40,40,0.45)] sm:grid-cols-3">
+          <article className="flex flex-col gap-1 rounded-2xl border border-[#cce6a4] bg-[#f5ffe1] p-4">
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#6b8e23]">
+              Entradas no período
+            </span>
+            <strong className="text-2xl font-semibold text-[#3a5f14]">
+              {formatadorNumero.format(resumoEstoque.entradas)}
+            </strong>
+            <span className="text-[11px] uppercase tracking-[0.18em] text-[#6b8e23]/80">
+              Movimentações positivas registradas
+            </span>
+          </article>
+          <article className="flex flex-col gap-1 rounded-2xl border border-[#f4a1a1] bg-[#ffe7e7] p-4">
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#d62828]">
+              Saídas no período
+            </span>
+            <strong className="text-2xl font-semibold text-[#b01717]">
+              {formatadorNumero.format(resumoEstoque.saidas)}
+            </strong>
+            <span className="text-[11px] uppercase tracking-[0.18em] text-[#b65353]/80">
+              Inclui vendas e ajustes negativos
+            </span>
+          </article>
+          <article className="flex flex-col gap-1 rounded-2xl border border-[#ffd166]/70 bg-[#fff5d6]/80 p-4">
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#f4a226]">
+              Saldo final
+            </span>
+            <strong className="text-2xl font-semibold text-[#d62828]">
+              {formatadorNumero.format(resumoEstoque.saldoFinal)}
+            </strong>
+            <span className="text-[11px] uppercase tracking-[0.18em] text-[#8c5315]/80">
+              Saldo inicial: {formatadorNumero.format(resumoEstoque.saldoInicial)}
+            </span>
+          </article>
+        </section>
+
         <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-[#ffd166] bg-white/95 p-5 shadow-[0_20px_60px_-45px_rgba(214,40,40,0.4)]">
@@ -345,10 +458,42 @@ export default function HistoricoVendasPage() {
                   {totalRegistros === 0 ? "Nenhuma venda registrada" : `Vendas ${exibicaoInicial} – ${exibicaoFinal} de ${totalRegistros}`}
                 </strong>
                 <span className="text-[11px] uppercase tracking-[0.18em] text-[#8c5315]/80">
-                  Atualizado em {checarUltimaAtualizacao()}
+                  Atualizado em {checarUltimaAtualizacao()} · Período: {nomeMesSelecionado} / {anoSelecionado}
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-[#8c5315]">
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]/80">
+                    Mês
+                  </span>
+                  <select
+                    value={mesSelecionado}
+                    onChange={handleAlterarMes}
+                    className="rounded-xl border border-[#ffd166] bg-white px-3 py-2 text-sm font-semibold text-[#d62828] outline-none transition focus:border-[#fcbf49] focus:ring-2 focus:ring-[#ffe066]"
+                  >
+                    {MESES.map((mesItem) => (
+                      <option key={mesItem.valor} value={mesItem.valor}>
+                        {mesItem.rotulo}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[#8c5315]">
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]/80">
+                    Ano
+                  </span>
+                  <select
+                    value={anoSelecionado}
+                    onChange={handleAlterarAno}
+                    className="rounded-xl border border-[#ffd166] bg-white px-3 py-2 text-sm font-semibold text-[#d62828] outline-none transition focus:border-[#fcbf49] focus:ring-2 focus:ring-[#ffe066]"
+                  >
+                    {anosDisponiveis.map((anoOption) => (
+                      <option key={anoOption} value={anoOption}>
+                        {anoOption}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="flex items-center gap-2 text-sm text-[#8c5315]">
                   <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]/80">
                     Itens por página

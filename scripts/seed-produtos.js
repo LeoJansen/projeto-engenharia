@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { PrismaClient } = require("@prisma/client");
+const {
+  PrismaClient,
+  MovimentacaoTipo,
+  MovimentacaoMotivo,
+} = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
@@ -139,22 +143,67 @@ async function main() {
   console.log(`✔ Operador disponível: ${operadorPadrao.login} / ${operadorPadrao.senha}`);
 
   for (const produto of produtos) {
-    await prisma.produto.upsert({
-      where: { codigoBarras: produto.codigoBarras },
-      update: {
-        nome: produto.nome,
-        precoUnitario: produto.precoUnitario,
-        qtdEstoque: produto.qtdEstoque,
-      },
-      create: {
-        nome: produto.nome,
-        codigoBarras: produto.codigoBarras,
-        precoUnitario: produto.precoUnitario,
-        qtdEstoque: produto.qtdEstoque,
-      },
+    const resultado = await prisma.$transaction(async (tx) => {
+      const existente = await tx.produto.findUnique({
+        where: { codigoBarras: produto.codigoBarras },
+        select: { id: true, qtdEstoque: true },
+      });
+
+      if (existente) {
+        const atualizado = await tx.produto.update({
+          where: { id: existente.id },
+          data: {
+            nome: produto.nome,
+            precoUnitario: produto.precoUnitario,
+            qtdEstoque: produto.qtdEstoque,
+          },
+        });
+
+        const diferenca = produto.qtdEstoque - existente.qtdEstoque;
+
+        if (diferenca !== 0) {
+          await tx.movimentacaoEstoque.create({
+            data: {
+              produtoId: atualizado.id,
+              quantidade: Math.abs(diferenca),
+              tipo: diferenca > 0 ? MovimentacaoTipo.ENTRADA : MovimentacaoTipo.SAIDA,
+              motivo: MovimentacaoMotivo.AJUSTE_MANUAL,
+            },
+          });
+        }
+
+        return { produto: atualizado, acao: "atualizado", diferenca };
+      }
+
+      const criado = await tx.produto.create({
+        data: {
+          nome: produto.nome,
+          codigoBarras: produto.codigoBarras,
+          precoUnitario: produto.precoUnitario,
+          qtdEstoque: produto.qtdEstoque,
+        },
+      });
+
+      if (produto.qtdEstoque > 0) {
+        await tx.movimentacaoEstoque.create({
+          data: {
+            produtoId: criado.id,
+            quantidade: produto.qtdEstoque,
+            tipo: MovimentacaoTipo.ENTRADA,
+            motivo: MovimentacaoMotivo.CADASTRO,
+          },
+        });
+      }
+
+      return { produto: criado, acao: "criado", diferenca: produto.qtdEstoque };
     });
 
-    console.log(`✔ Produto sincronizado: ${produto.nome}`);
+    const simbolo = resultado.diferenca > 0 ? "+" : "";
+    const detalheMovimento = resultado.diferenca === 0
+      ? "sem ajuste de saldo"
+      : `ajuste ${simbolo}${resultado.diferenca}`;
+
+    console.log(`✔ Produto sincronizado: ${resultado.produto.nome} (${detalheMovimento})`);
   }
 }
 

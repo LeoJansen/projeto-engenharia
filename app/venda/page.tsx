@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 
@@ -127,6 +127,12 @@ const criarSelecoesVazias = (): Record<StepKey, ProdutoResponse | null> =>
     return acc;
   }, {} as Record<StepKey, ProdutoResponse | null>);
 
+const criarQuantidadesIniciais = (): Record<StepKey, number> =>
+  STEP_SEQUENCE.reduce((acc, step) => {
+    acc[step] = 1;
+    return acc;
+  }, {} as Record<StepKey, number>);
+
 const parsePrecoUnitario = (preco: number | string): number => {
   if (typeof preco === "number" && Number.isFinite(preco)) {
     return preco;
@@ -186,6 +192,13 @@ export default function VendaPage() {
   const [formaPagamento, setFormaPagamento] = useState("Dinheiro");
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
+  const [feedbackCodigo, setFeedbackCodigo] = useState<
+    | {
+        tipo: "erro" | "sucesso";
+        mensagem: string;
+      }
+    | null
+  >(null);
   const [carregandoProduto, setCarregandoProduto] = useState(false);
   const [finalizandoVenda, setFinalizandoVenda] = useState(false);
   const [catalogo, setCatalogo] = useState<ProdutoResponse[]>([]);
@@ -194,11 +207,15 @@ export default function VendaPage() {
   const [selecoes, setSelecoes] = useState<Record<StepKey, ProdutoResponse | null>>(
     criarSelecoesVazias
   );
+  const [quantidadesSelecao, setQuantidadesSelecao] = useState<Record<StepKey, number>>(
+    criarQuantidadesIniciais
+  );
   const [etapaAtual, setEtapaAtual] = useState<VendaStep>("pedido");
   const router = useRouter();
   const pathname = usePathname();
   const { operador, setOperador } = useAuth();
   const [deslogando, setDeslogando] = useState(false);
+  const codigoInputRef = useRef<HTMLInputElement>(null);
 
   const redirecionarParaLogin = useCallback(() => {
     const destino = encodeURIComponent(pathname ?? "/venda");
@@ -318,6 +335,18 @@ export default function VendaPage() {
           }
         });
 
+        setQuantidadesSelecao((quantidadesPrevias) => {
+          const atualizadasQuantidades = criarQuantidadesIniciais();
+
+          STEP_SEQUENCE.forEach((step) => {
+            if (atualizadas[step]) {
+              atualizadasQuantidades[step] = quantidadesPrevias[step] ?? 1;
+            }
+          });
+
+          return atualizadasQuantidades;
+        });
+
         return atualizadas;
       });
     } catch (error) {
@@ -366,24 +395,107 @@ export default function VendaPage() {
     }, {} as Record<StepKey, ProdutoResponse[]>);
   }, [catalogo]);
 
-  const selecoesEmOrdem = useMemo(
+  const selecoesOrdenadas = useMemo(
     () =>
-      STEP_SEQUENCE.map((step) => selecoes[step]).filter(
-        (produto): produto is ProdutoResponse => Boolean(produto)
+      STEP_SEQUENCE.map((step) => {
+        const produto = selecoes[step];
+        if (!produto) {
+          return null;
+        }
+
+        return { step, produto };
+      }).filter(
+        (
+          entrada
+        ): entrada is { step: StepKey; produto: ProdutoResponse } => Boolean(entrada)
       ),
     [selecoes]
   );
 
+  const totalItensSelecionados = useMemo(
+    () =>
+      selecoesOrdenadas.reduce(
+        (acc, { step }) => acc + Math.max(1, quantidadesSelecao[step] ?? 1),
+        0
+      ),
+    [quantidadesSelecao, selecoesOrdenadas]
+  );
+
   const podeAdicionarCombo =
-    selecoesEmOrdem.length > 0 && !carregandoCatalogo && !erroCatalogo;
+    selecoesOrdenadas.length > 0 && !carregandoCatalogo && !erroCatalogo;
+
+  const ajustarQuantidadeSelecao = useCallback(
+    (step: StepKey, delta: number) => {
+      setQuantidadesSelecao((prev) => {
+        const atual = prev[step] ?? 1;
+        const atualizado = Math.max(1, atual + delta);
+
+        if (atualizado === atual) {
+          return prev;
+        }
+
+        return { ...prev, [step]: atualizado };
+      });
+    },
+    []
+  );
+
+  const definirQuantidadeSelecao = useCallback((step: StepKey, valor: number) => {
+    setQuantidadesSelecao((prev) => {
+      const normalizado = Number.isFinite(valor) && valor > 0 ? Math.floor(valor) : 1;
+      const atual = prev[step] ?? 1;
+
+      if (normalizado === atual) {
+        return prev;
+      }
+
+      return { ...prev, [step]: normalizado };
+    });
+  }, []);
+
+  const removerSelecao = useCallback((step: StepKey) => {
+    const indiceEtapa = STEP_SEQUENCE.indexOf(step);
+
+    setSelecoes((prev) => {
+      const proximo = { ...prev };
+
+      for (let indice = indiceEtapa; indice < STEP_SEQUENCE.length; indice += 1) {
+        proximo[STEP_SEQUENCE[indice]] = null;
+      }
+
+      return proximo;
+    });
+
+    setQuantidadesSelecao((prev) => {
+      const proximo = { ...prev };
+
+      for (let indice = indiceEtapa; indice < STEP_SEQUENCE.length; indice += 1) {
+        proximo[STEP_SEQUENCE[indice]] = 1;
+      }
+
+      return proximo;
+    });
+  }, []);
 
   const handleSelecionarProduto = (etapa: StepKey, produto: ProdutoResponse) => {
+    const indiceEtapa = STEP_SEQUENCE.indexOf(etapa);
+
     setSelecoes((prev) => {
       const proximo = { ...prev, [etapa]: produto };
-      const indiceEtapa = STEP_SEQUENCE.indexOf(etapa);
 
       for (let indice = indiceEtapa + 1; indice < STEP_SEQUENCE.length; indice += 1) {
         proximo[STEP_SEQUENCE[indice]] = null;
+      }
+
+      return proximo;
+    });
+
+    setQuantidadesSelecao((prev) => {
+      const proximo = { ...prev };
+      proximo[etapa] = 1;
+
+      for (let indice = indiceEtapa + 1; indice < STEP_SEQUENCE.length; indice += 1) {
+        proximo[STEP_SEQUENCE[indice]] = 1;
       }
 
       return proximo;
@@ -396,6 +508,7 @@ export default function VendaPage() {
 
   const handleResetSelecoes = () => {
     setSelecoes(criarSelecoesVazias());
+    setQuantidadesSelecao(criarQuantidadesIniciais());
     setErro((mensagemAtual) =>
       mensagemAtual && mensagemAtual.startsWith("Selecione") ? null : mensagemAtual
     );
@@ -405,24 +518,29 @@ export default function VendaPage() {
     setErro(null);
     setSucesso(null);
 
-    if (selecoesEmOrdem.length === 0) {
+    if (selecoesOrdenadas.length === 0) {
       setErro("Nenhum item selecionado");
       return;
     }
 
     try {
-      selecoesEmOrdem.forEach((produto) => {
-        const item = normalizarProduto(produto);
+      let totalAdicionado = 0;
+
+      selecoesOrdenadas.forEach(({ step, produto }) => {
+        const quantidadeSelecionada = Math.max(1, quantidadesSelecao[step] ?? 1);
+        const item = normalizarProduto(produto, quantidadeSelecionada);
         adicionarOuIncrementarItem(item);
+        totalAdicionado += quantidadeSelecionada;
       });
 
-      const quantidade = selecoesEmOrdem.length;
+      const quantidade = totalAdicionado;
       setSucesso(
         quantidade === 1
           ? "Item adicionado ao carrinho!"
           : `${quantidade} itens adicionados ao carrinho!`
       );
       setSelecoes(criarSelecoesVazias());
+      setQuantidadesSelecao(criarQuantidadesIniciais());
     } catch (error) {
       console.error("[pdv] Falha ao adicionar combo", error);
       setErro(
@@ -444,7 +562,7 @@ export default function VendaPage() {
     [itens]
   );
 
-  const normalizarProduto = (produto: ProdutoResponse): ItemCarrinho => {
+  const normalizarProduto = (produto: ProdutoResponse, quantidade = 1): ItemCarrinho => {
     const precoNumero = obterPrecoProduto(produto);
 
     return {
@@ -452,21 +570,25 @@ export default function VendaPage() {
       nome: produto.nome,
       codigoBarras: produto.codigoBarras,
       precoUnitario: precoNumero,
-      quantidade: 1,
+      quantidade: Math.max(1, quantidade),
     };
   };
 
   const adicionarOuIncrementarItem = (produto: ItemCarrinho) => {
     setItens((prev) => {
-      const existente = prev.findIndex((item) => item.id === produto.id);
+      const indiceExistente = prev.findIndex((item) => item.id === produto.id);
 
-      if (existente !== -1) {
-        const copia = structuredClone(prev);
-        copia[existente].quantidade += 1;
-        return copia;
+      if (indiceExistente === -1) {
+        return [...prev, produto];
       }
 
-      return [...prev, produto];
+      const incremento = Number.isFinite(produto.quantidade) && produto.quantidade > 0 ? produto.quantidade : 1;
+
+      return prev.map((item, indice) =>
+        indice === indiceExistente
+          ? { ...item, quantidade: item.quantidade + incremento }
+          : item
+      );
     });
   };
 
@@ -500,12 +622,18 @@ export default function VendaPage() {
     const codigoLimpo = codigo.trim();
 
     if (!codigoLimpo) {
-      setErro("Informe um código de barras para pesquisar");
+      const mensagem = "Informe um código de barras para pesquisar";
+      setFeedbackCodigo({ tipo: "erro", mensagem });
+      setErro(mensagem);
+      requestAnimationFrame(() => {
+        codigoInputRef.current?.focus();
+      });
       return;
     }
 
     setErro(null);
     setSucesso(null);
+    setFeedbackCodigo(null);
     setCarregandoProduto(true);
 
     try {
@@ -518,15 +646,42 @@ export default function VendaPage() {
       }
 
       if (!resposta.ok || !dados) {
-        throw new Error(dados?.message ?? "Produto não encontrado");
+        const mensagemErro =
+          (dados && typeof dados === "object" && "message" in dados && typeof dados.message === "string")
+            ? dados.message
+            : resposta.status === 404
+              ? "Produto não encontrado"
+              : "Não foi possível buscar o produto";
+
+        setErro(mensagemErro);
+        setFeedbackCodigo({ tipo: "erro", mensagem: mensagemErro });
+        setCodigo("");
+        requestAnimationFrame(() => {
+          codigoInputRef.current?.focus();
+        });
+        return;
       }
 
-      const produtoNormalizado = normalizarProduto(dados);
+      const produtoNormalizado = normalizarProduto(dados as ProdutoResponse);
       adicionarOuIncrementarItem(produtoNormalizado);
       setCodigo("");
+      setFeedbackCodigo({
+        tipo: "sucesso",
+        mensagem: `Produto "${dados.nome}" adicionado ao carrinho`,
+      });
+      requestAnimationFrame(() => {
+        codigoInputRef.current?.focus();
+      });
     } catch (error) {
       console.error("[pdv] Falha ao buscar produto", error);
-      setErro(error instanceof Error ? error.message : "Não foi possível buscar o produto");
+      const mensagemErro =
+        error instanceof Error ? error.message : "Não foi possível buscar o produto";
+      setErro(mensagemErro);
+      setFeedbackCodigo({ tipo: "erro", mensagem: mensagemErro });
+      setCodigo("");
+      requestAnimationFrame(() => {
+        codigoInputRef.current?.focus();
+      });
     } finally {
       setCarregandoProduto(false);
     }
@@ -682,7 +837,13 @@ export default function VendaPage() {
                         inputMode="numeric"
                         placeholder="Ex: 7894900011517"
                         value={codigo}
-                        onChange={(event) => setCodigo(event.target.value)}
+                        onChange={(event) => {
+                          setCodigo(event.target.value);
+                          if (feedbackCodigo) {
+                            setFeedbackCodigo(null);
+                          }
+                        }}
+                        ref={codigoInputRef}
                         className="flex-1 rounded-2xl border border-[#ffd166] bg-white px-4 py-3 text-sm text-[#2f1b0c] outline-none transition focus:border-[#fcbf49] focus:ring-2 focus:ring-[#ffe066]"
                       />
                       <button
@@ -694,6 +855,25 @@ export default function VendaPage() {
                       </button>
                     </div>
                   </label>
+                  {feedbackCodigo && (
+                    feedbackCodigo.tipo === "erro" ? (
+                      <div
+                        role="alert"
+                        aria-live="assertive"
+                        className="mt-3 rounded-2xl border border-[#f4a1a1] bg-[#ffe5e5] px-4 py-3 text-xs text-[#b71d1d]"
+                      >
+                        {feedbackCodigo.mensagem}
+                      </div>
+                    ) : (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="mt-3 rounded-2xl border border-[#c6f6d5] bg-[#f0fff4] px-4 py-3 text-xs text-[#23613d]"
+                      >
+                        {feedbackCodigo.mensagem}
+                      </div>
+                    )
+                  )}
                   <p className="mt-3 text-xs text-[#8c5315]">
                     Dica: pressione Enter após ler o código para incluir o item automaticamente.
                   </p>
@@ -817,9 +997,9 @@ export default function VendaPage() {
                       <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[#d62828]">
                         Resumo das escolhas
                       </h3>
-                      {selecoesEmOrdem.length > 0 ? (
+                      {selecoesOrdenadas.length > 0 ? (
                         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#23613d]">
-                          {selecoesEmOrdem.length} {selecoesEmOrdem.length === 1 ? "item selecionado" : "itens selecionados"}
+                          {totalItensSelecionados} {totalItensSelecionados === 1 ? "item selecionado" : "itens selecionados"}
                         </span>
                       ) : (
                         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8c5315]">
@@ -828,30 +1008,83 @@ export default function VendaPage() {
                       )}
                     </div>
 
-                    {selecoesEmOrdem.length > 0 ? (
+                      {selecoesOrdenadas.length > 0 ? (
                       <ul className="space-y-2 text-sm text-[#8c5315]">
-                        {selecoesEmOrdem.map((produto) => {
-                          const preco = obterPrecoProduto(produto);
-                          return (
-                            <li key={produto.id} className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-2">
-                                <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
-                                  <Image
-                                    src={obterImagemProduto(produto.nome, produto.codigoBarras)}
-                                    alt={produto.nome}
-                                    fill
-                                    className="object-cover"
-                                    sizes="40px"
-                                  />
+                          {selecoesOrdenadas.map(({ step, produto }) => {
+                            const preco = obterPrecoProduto(produto);
+                            const quantidadeSelecionada = Math.max(
+                              1,
+                              quantidadesSelecao[step] ?? 1
+                            );
+
+                            return (
+                              <li
+                                key={`${step}-${produto.id}`}
+                                className="flex flex-col gap-3 rounded-xl border border-[#ffd166]/60 bg-white/70 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
+                                    <Image
+                                      src={obterImagemProduto(produto.nome, produto.codigoBarras)}
+                                      alt={produto.nome}
+                                      fill
+                                      className="object-cover"
+                                      sizes="40px"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col text-sm">
+                                    <span className="font-semibold text-[#d62828]">{produto.nome}</span>
+                                    <span className="text-[11px] uppercase tracking-[0.18em] text-[#8c5315]">
+                                      Código · {produto.codigoBarras}
+                                    </span>
+                                  </div>
                                 </div>
-                                <span>{produto.nome}</span>
-                              </div>
-                              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
-                                {formatCurrency(preco)}
-                              </span>
-                            </li>
-                          );
-                        })}
+
+                                <div className="flex flex-wrap items-center justify-end gap-3">
+                                  <div className="inline-flex items-center rounded-full border border-[#ffd166] bg-white/90 pr-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => ajustarQuantidadeSelecao(step, -1)}
+                                      disabled={quantidadeSelecionada <= 1}
+                                      className="h-8 w-8 rounded-full text-base font-semibold text-[#d62828]/70 transition hover:bg-[#ffe8cc] hover:text-[#d62828] disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      −
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={quantidadeSelecionada}
+                                      onChange={(event) =>
+                                        definirQuantidadeSelecao(step, Number(event.target.value))
+                                      }
+                                      aria-label="Quantidade selecionada"
+                                      className="w-14 border-0 bg-transparent text-center text-sm font-semibold text-[#d62828] outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => ajustarQuantidadeSelecao(step, 1)}
+                                      className="h-8 w-8 rounded-full text-base font-semibold text-[#d62828]/70 transition hover:bg-[#ffe8cc] hover:text-[#d62828]"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removerSelecao(step)}
+                                    className="rounded-full border border-[#ffd166] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#b71d1d]"
+                                  >
+                                    Remover
+                                  </button>
+                                  <div className="text-right text-xs text-[#8c5315]">
+                                    <p>Unitário: {formatCurrency(preco)}</p>
+                                    <p className="text-sm font-semibold text-[#d62828]">
+                                      Subtotal: {formatCurrency(preco * quantidadeSelecionada)}
+                                    </p>
+                                  </div>
+                                </div>
+                              </li>
+                            );
+                          })}
                       </ul>
                     ) : (
                       <p className="text-xs text-[#8c5315]">
@@ -877,6 +1110,93 @@ export default function VendaPage() {
                       </button>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-[#ffd166] bg-white/90 p-6 shadow-[0_20px_60px_-45px_rgba(214,40,40,0.5)]">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-[#d62828]">
+                    Itens no carrinho ({totalItens})
+                  </h3>
+                  {itens.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setItens([])}
+                      className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]/70 underline-offset-4 transition hover:text-[#d62828] hover:underline"
+                    >
+                      Limpar carrinho
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {itens.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-[#ffd166] bg-[#fff5d6] p-5 text-sm text-[#8c5315]">
+                      Nenhum item no carrinho ainda. Utilize o código de barras ou o menu progressivo para adicionar produtos.
+                    </p>
+                  ) : (
+                    itens.map((item) => (
+                      <article
+                        key={item.id}
+                        className="flex flex-col gap-3 rounded-2xl border border-[#ffd166] bg-white/80 p-4 shadow-sm transition hover:border-[#fcbf49]"
+                      >
+                        <header className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
+                              <Image
+                                src={obterImagemProduto(item.nome, item.codigoBarras)}
+                                alt={item.nome}
+                                fill
+                                className="object-cover"
+                                sizes="56px"
+                              />
+                            </div>
+                            <div className="text-sm text-[#8c5315]">
+                              <p className="font-semibold text-[#d62828]">{item.nome}</p>
+                              <p className="text-xs uppercase tracking-[0.18em]">
+                                Código · {item.codigoBarras}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removerItem(item.id)}
+                            className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:text-[#b71d1d]"
+                          >
+                            Remover
+                          </button>
+                        </header>
+
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="inline-flex items-center rounded-full border border-[#ffd166] bg-white/90 pr-2">
+                            <button
+                              type="button"
+                              onClick={() => atualizarQuantidade(item.id, -1)}
+                              className="h-9 w-9 rounded-full text-lg font-semibold text-[#d62828]/70 transition hover:bg-[#ffe8cc] hover:text-[#d62828]"
+                            >
+                              −
+                            </button>
+                            <span className="w-12 text-center text-sm font-semibold text-[#d62828]">
+                              {item.quantidade}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => atualizarQuantidade(item.id, 1)}
+                              className="h-9 w-9 rounded-full text-lg font-semibold text-[#d62828]/70 transition hover:bg-[#ffe8cc] hover:text-[#d62828]"
+                            >
+                              +
+                            </button>
+                          </div>
+                          <div className="text-right text-sm text-[#8c5315]">
+                            <p>Unitário: {formatCurrency(item.precoUnitario)}</p>
+                            <p className="text-base font-semibold text-[#d62828]">
+                              Subtotal: {formatCurrency(item.precoUnitario * item.quantidade)}
+                            </p>
+                          </div>
+                        </div>
+                      </article>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -1102,26 +1422,40 @@ export default function VendaPage() {
                         {itens.map((item) => (
                           <li
                             key={`${item.id}-${item.codigoBarras}`}
-                            className="flex items-center justify-between gap-2"
+                            className="flex flex-col gap-3 rounded-xl border border-[#ffd166]/70 bg-white/70 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
                           >
-                            <div className="flex items-center gap-2">
-                              <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-md bg-white shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
                                 <Image
                                   src={obterImagemProduto(item.nome, item.codigoBarras)}
                                   alt={item.nome}
                                   fill
                                   className="object-cover"
-                                  sizes="32px"
+                                  sizes="40px"
                                 />
                               </div>
-                              <span>
-                                {item.nome}
-                                <span className="text-xs text-[#b5863a]"> × {item.quantidade}</span>
-                              </span>
+                              <div className="flex flex-col text-sm text-[#8c5315]">
+                                <span className="font-semibold text-[#d62828]">{item.nome}</span>
+                                <span className="text-[11px] uppercase tracking-[0.18em]">
+                                  Código · {item.codigoBarras}
+                                </span>
+                                <span className="text-xs text-[#b5863a]">
+                                  Quantidade · {item.quantidade}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
-                              {formatCurrency(item.precoUnitario * item.quantidade)}
-                            </span>
+                            <div className="flex flex-wrap items-center justify-end gap-3">
+                              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d62828]">
+                                {formatCurrency(item.precoUnitario * item.quantidade)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removerItem(item.id)}
+                                className="rounded-full border border-[#ffd166] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#d62828] transition hover:border-[#fcbf49] hover:text-[#b71d1d]"
+                              >
+                                Remover
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>

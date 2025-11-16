@@ -9,6 +9,17 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum MovimentacaoTipo {
+  ENTRADA
+  SAIDA
+}
+
+enum MovimentacaoMotivo {
+  CADASTRO
+  AJUSTE_MANUAL
+  VENDA
+}
+
 // 2. Lógica de Negócio: Modelos de Dados
 
 // RNF01: Exigir senha pessoal do operador
@@ -28,6 +39,7 @@ model Produto {
   precoUnitario Decimal    @db.Decimal(10, 2)
   qtdEstoque   Int
   ItemVenda    ItemVenda[]
+  Movimentacoes MovimentacaoEstoque[]
 }
 
 // RF02, RF05, RF06: Registrar venda, total e pagamento
@@ -41,6 +53,7 @@ model Venda {
   operador      Operador    @relation(fields: [idOperador], references: [id])
   
   itens         ItemVenda[]
+  movimentacoes MovimentacaoEstoque[]
 }
 
 // RF01: Registrar os produtos (itens) vendidos
@@ -54,4 +67,22 @@ model ItemVenda {
   
   idProduto    Int
   produto      Produto @relation(fields: [idProduto], references: [id])
+}
+
+model MovimentacaoEstoque {
+  id           Int                @id @default(autoincrement())
+  criadoEm     DateTime           @default(now())
+  tipo         MovimentacaoTipo
+  motivo       MovimentacaoMotivo
+  quantidade   Int
+  produtoId    Int
+  vendaId      Int?
+
+  produto      Produto            @relation(fields: [produtoId], references: [id])
+  venda        Venda?             @relation(fields: [vendaId], references: [id])
+
+  @@index([criadoEm])
+  @@index([tipo])
+  @@index([produtoId])
+  @@index([vendaId])
 }

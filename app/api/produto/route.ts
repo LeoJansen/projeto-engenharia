@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { obterOperadorAutenticado } from "@/lib/auth/session";
 import { AuthSecretNotConfiguredError } from "@/lib/auth/token";
+import { MovimentacaoMotivo, MovimentacaoTipo } from "@prisma/client";
 
 type ProdutoRecord = {
   id: number;
@@ -148,13 +149,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const produtoCriado = await prisma.produto.create({
-      data: {
-        nome,
-        codigoBarras,
-        precoUnitario,
-        qtdEstoque,
-      },
+    const produtoCriado = await prisma.$transaction(async (tx) => {
+      const produto = await tx.produto.create({
+        data: {
+          nome,
+          codigoBarras,
+          precoUnitario,
+          qtdEstoque,
+        },
+      });
+
+      if (qtdEstoque > 0) {
+        await tx.movimentacaoEstoque.create({
+          data: {
+            produtoId: produto.id,
+            quantidade: qtdEstoque,
+            tipo: MovimentacaoTipo.ENTRADA,
+            motivo: MovimentacaoMotivo.CADASTRO,
+          },
+        });
+      }
+
+      return produto;
     });
 
     const payload: ProdutoPayload = {
@@ -223,9 +239,35 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const produtoAtualizado = await prisma.produto.update({
-      where: { id },
-      data: { qtdEstoque },
+    const produtoAtualizado = await prisma.$transaction(async (tx) => {
+      const produtoExistente = await tx.produto.findUnique({
+        where: { id },
+        select: { id: true, nome: true, qtdEstoque: true },
+      });
+
+      if (!produtoExistente) {
+        throw new Error("Produto não encontrado");
+      }
+
+      const diferenca = qtdEstoque - produtoExistente.qtdEstoque;
+
+      const atualizado = await tx.produto.update({
+        where: { id },
+        data: { qtdEstoque },
+      });
+
+      if (diferenca !== 0) {
+        await tx.movimentacaoEstoque.create({
+          data: {
+            produtoId: atualizado.id,
+            quantidade: Math.abs(diferenca),
+            tipo: diferenca > 0 ? MovimentacaoTipo.ENTRADA : MovimentacaoTipo.SAIDA,
+            motivo: MovimentacaoMotivo.AJUSTE_MANUAL,
+          },
+        });
+      }
+
+      return atualizado;
     });
 
     const payload: ProdutoPayload = {
@@ -247,6 +289,14 @@ export async function PATCH(request: Request) {
     }
 
     console.error("[api/produto] Falha ao atualizar produto", error);
+
+
+    if (error instanceof Error && error.message === "Produto não encontrado") {
+      return NextResponse.json(
+        { message: "Produto não encontrado" },
+        { status: 404 }
+      );
+    }
 
     if (
       typeof error === "object" &&

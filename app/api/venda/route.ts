@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { obterOperadorAutenticado } from "@/lib/auth/session";
 import { AuthSecretNotConfiguredError } from "@/lib/auth/token";
+import { MovimentacaoMotivo, MovimentacaoTipo } from "@prisma/client";
 
 type ItemVendaInput = {
   idProduto: number;
@@ -124,13 +125,27 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url);
+    const agora = new Date();
     const limite = sanitizarInteiroPositivo(url.searchParams.get("limit"), 50, 1, 100);
     const pagina = sanitizarInteiroPositivo(url.searchParams.get("page"), 1, 1, 1000);
+    const mes = sanitizarInteiroPositivo(url.searchParams.get("mes"), agora.getMonth() + 1, 1, 12);
+    const ano = sanitizarInteiroPositivo(url.searchParams.get("ano"), agora.getFullYear(), 2000, 2100);
     const skip = (pagina - 1) * limite;
+
+    const inicioPeriodo = new Date(Date.UTC(ano, mes - 1, 1, 0, 0, 0, 0));
+    const fimPeriodo = new Date(Date.UTC(mes === 12 ? ano + 1 : ano, mes === 12 ? 0 : mes, 1, 0, 0, 0, 0));
+
+    const filtroPeriodo = {
+      gte: inicioPeriodo,
+      lt: fimPeriodo,
+    } as const;
 
     const [vendasDB, totalizador, agrupamentoPagamento] = await Promise.all([
       prisma.venda.findMany({
         orderBy: { dataHora: "desc" },
+        where: {
+          dataHora: filtroPeriodo,
+        },
         skip,
         take: limite,
         include: {
@@ -149,6 +164,9 @@ export async function GET(request: Request) {
         },
       }),
       prisma.venda.aggregate({
+        where: {
+          dataHora: filtroPeriodo,
+        },
         _sum: { totalVenda: true },
         _count: { _all: true },
         _min: { dataHora: true },
@@ -159,6 +177,9 @@ export async function GET(request: Request) {
         _count: { _all: true },
         _sum: { totalVenda: true },
         orderBy: { tipoPagamento: "asc" },
+        where: {
+          dataHora: filtroPeriodo,
+        },
       }),
     ]);
 
@@ -166,6 +187,81 @@ export async function GET(request: Request) {
     const faturamentoTotalNumero = Number(totalizador._sum.totalVenda ?? 0);
     const ticketMedioNumero = totalRegistros > 0 ? faturamentoTotalNumero / totalRegistros : 0;
     const totalPaginas = totalRegistros === 0 ? 1 : Math.ceil(totalRegistros / limite);
+
+    const prismaComMovimentacao = prisma as typeof prisma & {
+      movimentacaoEstoque?: typeof prisma.movimentacaoEstoque;
+    };
+
+    const movimentacaoEstoqueDelegate = prismaComMovimentacao.movimentacaoEstoque;
+
+    let resumoEstoque = {
+      entradas: 0,
+      saidas: 0,
+      saldoInicial: 0,
+      saldoFinal: 0,
+    };
+
+    if (movimentacaoEstoqueDelegate && typeof movimentacaoEstoqueDelegate.aggregate === "function") {
+      try {
+        const [
+          entradasMesAgg,
+          saidasMesAgg,
+          entradasAnterioresAgg,
+          saidasAnterioresAgg,
+        ] = await Promise.all([
+          movimentacaoEstoqueDelegate.aggregate({
+            where: {
+              tipo: MovimentacaoTipo.ENTRADA,
+              criadoEm: filtroPeriodo,
+            },
+            _sum: { quantidade: true },
+          }),
+          movimentacaoEstoqueDelegate.aggregate({
+            where: {
+              tipo: MovimentacaoTipo.SAIDA,
+              criadoEm: filtroPeriodo,
+            },
+            _sum: { quantidade: true },
+          }),
+          movimentacaoEstoqueDelegate.aggregate({
+            where: {
+              tipo: MovimentacaoTipo.ENTRADA,
+              criadoEm: {
+                lt: inicioPeriodo,
+              },
+            },
+            _sum: { quantidade: true },
+          }),
+          movimentacaoEstoqueDelegate.aggregate({
+            where: {
+              tipo: MovimentacaoTipo.SAIDA,
+              criadoEm: {
+                lt: inicioPeriodo,
+              },
+            },
+            _sum: { quantidade: true },
+          }),
+        ]);
+
+        const entradasMes = Number(entradasMesAgg._sum.quantidade ?? 0);
+        const saidasMes = Number(saidasMesAgg._sum.quantidade ?? 0);
+        const entradasAnteriores = Number(entradasAnterioresAgg._sum.quantidade ?? 0);
+        const saidasAnteriores = Number(saidasAnterioresAgg._sum.quantidade ?? 0);
+        const saldoInicial = entradasAnteriores - saidasAnteriores;
+        const saldoFinal = saldoInicial + entradasMes - saidasMes;
+
+        resumoEstoque = {
+          entradas: entradasMes,
+          saidas: saidasMes,
+          saldoInicial,
+          saldoFinal,
+        };
+      } catch (resumoErro) {
+        console.warn("[api/venda] Falha ao calcular movimentações de estoque", resumoErro);
+      }
+    } else {
+      console.warn("[api/venda] Delegate movimentacaoEstoque indisponível. Resumo de estoque zerado.");
+    }
 
     return NextResponse.json({
       vendas: vendasDB.map(serializarVenda),
@@ -180,6 +276,13 @@ export async function GET(request: Request) {
           quantidade: registro._count._all,
           total: Number(registro._sum.totalVenda ?? 0).toFixed(2),
         })),
+        periodo: {
+          mes,
+          ano,
+          inicio: inicioPeriodo.toISOString(),
+          fim: fimPeriodo.toISOString(),
+        },
+        estoque: resumoEstoque,
       },
       meta: {
         page: pagina,
@@ -261,7 +364,7 @@ export async function POST(request: Request) {
         });
       }
 
-      return tx.venda.create({
+      const venda = await tx.venda.create({
         data: {
           totalVenda: totalVendaCalculado,
           tipoPagamento,
@@ -274,6 +377,20 @@ export async function POST(request: Request) {
           itens: true,
         },
       });
+
+      if (dadosItensVenda.length > 0) {
+        await tx.movimentacaoEstoque.createMany({
+          data: dadosItensVenda.map((item) => ({
+            produtoId: item.idProduto,
+            quantidade: item.quantidade,
+            tipo: MovimentacaoTipo.SAIDA,
+            motivo: MovimentacaoMotivo.VENDA,
+            vendaId: venda.id,
+          })),
+        });
+      }
+
+      return venda;
     });
 
     return NextResponse.json(vendaRegistrada, { status: 201 });

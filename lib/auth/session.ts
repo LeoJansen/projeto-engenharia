@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import type { ResponseCookie } from "next/dist/compiled/@edge-runtime/cookies";
 import prisma from "@/lib/prisma";
 import {
   AUTH_COOKIE_NAME,
@@ -14,9 +15,6 @@ export type OperadorSessao = {
   nome: string;
   login: string;
 };
-
-type CookieStore = Awaited<ReturnType<typeof cookies>>;
-type CookieDescriptor = Parameters<CookieStore["set"]>[0];
 
 const criarPayload = (operador: OperadorSessao): AuthTokenPayload => {
   const agora = Math.floor(Date.now() / 1000);
@@ -36,7 +34,7 @@ export const gerarTokenSessao = (operador: OperadorSessao): string => {
   return criarToken(payload);
 };
 
-export const montarCookieSessao = (token: string): CookieDescriptor => ({
+export const montarCookieSessao = (token: string): ResponseCookie => ({
   name: AUTH_COOKIE_NAME,
   value: token,
   httpOnly: true,
@@ -46,7 +44,7 @@ export const montarCookieSessao = (token: string): CookieDescriptor => ({
   path: "/",
 });
 
-export const montarCookieSessaoExpirada = (): CookieDescriptor => ({
+export const montarCookieSessaoExpirada = (): ResponseCookie => ({
   name: AUTH_COOKIE_NAME,
   value: "",
   httpOnly: true,
